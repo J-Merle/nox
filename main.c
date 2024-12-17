@@ -14,13 +14,19 @@
 
 #define DOFUS_SERVER_PORT 5555
 
-unsigned short read_var_short(char* data) {
+unsigned short read_short(unsigned char** data) {
+    uint8_t value = *(*data);
+    *data += 1;
+    return value;
+}
+
+unsigned short read_var_short(unsigned char** data) {
 
     int offset = 0;
     unsigned short value = 0;
 
     while(1) {
-        uint8_t v = *(data + offset);
+        uint8_t v = read_short(data);
         if(offset > 0) {
             value = value + ((v &127) << (offset*7));
         } else {
@@ -29,7 +35,6 @@ unsigned short read_var_short(char* data) {
         offset++;
         if((v & 128) == 0) break;
     }
-    printf("Read the value %hu and has an offset of %d\n", value, offset);
 
     return value;
 }
@@ -114,10 +119,18 @@ int main(int argc, char* argv[]) {
       }
 
       if(memcmp(data_type, "iyc", 3) == 0) {
+          // Skip for hdv dev
+          //continue;
           uint8_t value = *(data);
+
+          value = read_short(&data);
           assert(value == 18);
-          data = data + 1;
-          read_var_short(data); 
+
+          read_var_short(&data); 
+
+          value = read_short(&data);
+          assert(value == 10);
+
           // Looks like 0a always appear before massage size
           // For now we will use this because it looks like data before could have different size
           for(uint8_t l_offset = 0; l_offset < 5; l_offset++) {
@@ -140,10 +153,9 @@ int main(int argc, char* argv[]) {
 
       if(memcmp(data_type, "iqs", 3) ==0) {
           printf("Paquet HDV\n");
-          uint8_t value = *(data);
+          uint8_t value = read_short(&data);
           assert(value == 18);
-          data = data + 1;
-          uint8_t data_size = read_var_short(data); // Data size : let us now if all the data has been split between several packets
+          uint8_t data_size = read_var_short(&data); // Data size : let us now if all the data has been split between several packets
       }
 
 
