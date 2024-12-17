@@ -131,20 +131,7 @@ int main(int argc, char* argv[]) {
           value = read_short(&data);
           assert(value == 10);
 
-          // Looks like 0a always appear before massage size
-          // For now we will use this because it looks like data before could have different size
-          for(uint8_t l_offset = 0; l_offset < 5; l_offset++) {
-            offset++;
-            data = (buffer+offset);
-            uint8_t l_value = *(data);
-            if(l_value == 0x0a) {
-                offset++;
-                break;
-            }
-          }
-          uint8_t chat_size = *(buffer + offset);
-          offset++;
-          data = (buffer + offset);
+          uint8_t chat_size = read_short(&data);
           char chat_message[512] = {0};
           memcpy(chat_message, data, chat_size);
           printf("%s\n", chat_message);
