@@ -11,6 +11,7 @@
 #include <inttypes.h>
 #include <netinet/if_ether.h>
 #include <netinet/tcp.h>
+#include <sys/types.h>
 
 #define STAT_ID_INTEL 0x7e
 #define STAT_ID_STRENGTH 0x76
@@ -49,19 +50,13 @@ unsigned short read_short(unsigned char** data) {
     return value;
 }
 
-unsigned short read_int(unsigned char** data) {
-    uint16_t value = *(*data);
-    *data += 2;
-    return value;
-}
-
-unsigned int read_var_int(unsigned char** data) {
+uint32_t read_var_int(unsigned char** data) {
 
     int offset = 0;
     unsigned int value = 0;
 
     while(1) {
-        uint16_t v = read_int(data);
+        uint16_t v = read_short(data);
         if(offset > 0) {
             value = value + ((v &127) << (offset*7));
         } else {
@@ -217,28 +212,32 @@ int main(int argc, char* argv[]) {
               assert(value == 0x22);
               while(value == 0x22) {
 
-                  uint8_t carac_format = 0;
-                  uint8_t carac_type = 0;
+                  uint8_t stat_size = 0;
+                  uint8_t stat_type = 0;
 
-                  carac_format = read_short(&data);
-                  //Skip next
-                  data++;
-                  carac_type = read_short(&data);
-                  if(carac_format == 5) {
-                      data++;
+                  stat_size = read_short(&data);
+                  data++; // Skip next byte (0x08)
+                  stat_type = read_short(&data);
+                  data++; // Skip next byte (0x18)
+                  switch (stat_size) {
+                      case 0x04:
+                          value = read_short(&data);
+                          break;
+                      case 0x05:
+                          value = read_var_short(&data);
+                          break;
+                      default:
+                          printf("Unknown stat_size '%x'\n", stat_size);
+                          return -1;
                   }
-                  data++;
-                  value = read_short(&data);
-                  printf("%s\t\t\t%hu\n", stat_name(carac_type), value);
+                  printf("%s\t\t\t%hu\n", stat_name(stat_type), value);
                   value = read_short(&data);
               }
               assert(value == 0x2a);
-              value = read_short(&data);
-              if (value == 0x05) {
-                data +=5;
-              } else {
-                  data +=4;
-              }
+              value = read_short(&data); // End block size
+              uint32_t price = read_var_int(&data);
+              data += 2; // Skip next two empty bytes
+              printf("Price %u K\n", price);
               printf("===================\n");
           }
 
