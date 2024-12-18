@@ -235,6 +235,7 @@ int main(int argc, char* argv[]) {
               
               value = read_short(&data);
               assert(value == 0x22);
+              int power = 0;
               while(value == 0x22) {
 
                   uint8_t stat_size = 0;
@@ -266,6 +267,13 @@ int main(int argc, char* argv[]) {
                   stat_type = read_var_short(&data);
                   data++; // Skip next byte (0x18)
                   stat_value = read_var_short(&data);
+
+                  // TODO
+                  // Power is temporary computed here, will be moved
+                  if(stat_type == STAT_ID_PA) power += 100*stat_value;
+                  if(stat_type == STAT_ID_VITA) power += 1*stat_value;
+                  if(stat_type == STAT_ID_INTEL) power += 1*stat_value;
+
                   printf("%-20s\t%u\n", stat_name(stat_type), stat_value);
                   value = read_short(&data);
 #endif
@@ -275,6 +283,7 @@ int main(int argc, char* argv[]) {
               uint32_t price = read_var_int(&data);
               data += 2; // Skip next two empty bytes
               printf("Price %u K\n", price);
+              printf("Power: %d Efficiency %f\n", power, (float)power/price);
               printf("===================\n");
           }
 
