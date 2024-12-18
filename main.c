@@ -12,11 +12,65 @@
 #include <netinet/if_ether.h>
 #include <netinet/tcp.h>
 
+#define STAT_ID_INTEL 0x7e
+#define STAT_ID_STRENGTH 0x76
+#define STAT_ID_VITA 0x7d
+#define STAT_ID_LUCK 0x7b
+#define STAT_ID_INTEL_DEBUF 0x9b
+#define STAT_ID_AGI_DEBUF 0x9a
+#define STAT_ID_HEAL 0xb2
+#define STAT_ID_ESCAPE 0xf0
+#define STAT_ID_PA 0x6f
+#define STAT_ID_RES_EARTH 0xd2
+
 #define DOFUS_SERVER_PORT 5555
+
+char* stat_name(uint8_t stat_id) {
+    switch (stat_id) {
+        case STAT_ID_INTEL: return "INTEL";
+        case STAT_ID_STRENGTH: return "STRENGTH";
+        case STAT_ID_VITA: return "VITA";
+        case STAT_ID_LUCK: return "LUCK";
+        case STAT_ID_INTEL_DEBUF: return "DEBUF INTEL";
+        case STAT_ID_AGI_DEBUF: return "DEBUF AGI";
+        case STAT_ID_HEAL: return "HEAL";
+        case STAT_ID_ESCAPE: return "ESCAPE";
+        case STAT_ID_PA: return "PA";
+        case STAT_ID_RES_EARTH: return "RES EARTH %";
+        default: 
+            printf("%x was not found\n", stat_id);
+            return "UNKNOWN";
+    }
+}
 
 unsigned short read_short(unsigned char** data) {
     uint8_t value = *(*data);
     *data += 1;
+    return value;
+}
+
+unsigned short read_int(unsigned char** data) {
+    uint16_t value = *(*data);
+    *data += 2;
+    return value;
+}
+
+unsigned int read_var_int(unsigned char** data) {
+
+    int offset = 0;
+    unsigned int value = 0;
+
+    while(1) {
+        uint16_t v = read_int(data);
+        if(offset > 0) {
+            value = value + ((v &127) << (offset*7));
+        } else {
+            value = value + (v &127);
+        }
+        offset++;
+        if((v & 128) == 0) break;
+    }
+
     return value;
 }
 
@@ -120,7 +174,7 @@ int main(int argc, char* argv[]) {
 
       if(memcmp(data_type, "iyc", 3) == 0) {
           // Skip for hdv dev
-          //continue;
+          continue;
           uint8_t value = *(data);
 
           value = read_short(&data);
@@ -139,10 +193,55 @@ int main(int argc, char* argv[]) {
 
 
       if(memcmp(data_type, "iqs", 3) ==0) {
-          printf("Paquet HDV\n");
           uint8_t value = read_short(&data);
-          assert(value == 18);
+          assert(value == 0x12);
           uint8_t data_size = read_var_short(&data); // Data size : let us now if all the data has been split between several packets
+          if(data_size < 10) continue;
+
+          value = read_short(&data);
+          assert(value == 0x08);
+          data += 4; // (Original item ID ?)
+          printf("New HDV packet\n");
+          for(int i = 0; i <3; i++) { // We try to print 3 items for now, we need a way to find the toal number of items (we also must implement something to handle data split in several packets)
+              printf("===================\n");
+              value = read_short(&data);
+              assert(value == 0x1a);
+              data += 2; // ?
+              value = read_var_short(&data); // ?
+              value = read_short(&data);
+              assert(value == 0x10);
+              data += 4; // (Specific item ID ?)
+
+              
+              value = read_short(&data);
+              assert(value == 0x22);
+              while(value == 0x22) {
+
+                  uint8_t carac_format = 0;
+                  uint8_t carac_type = 0;
+
+                  carac_format = read_short(&data);
+                  //Skip next
+                  data++;
+                  carac_type = read_short(&data);
+                  if(carac_format == 5) {
+                      data++;
+                  }
+                  data++;
+                  value = read_short(&data);
+                  printf("%s\t\t\t%hu\n", stat_name(carac_type), value);
+                  value = read_short(&data);
+              }
+              assert(value == 0x2a);
+              value = read_short(&data);
+              if (value == 0x05) {
+                data +=5;
+              } else {
+                  data +=4;
+              }
+              printf("===================\n");
+          }
+
       }
 
 
