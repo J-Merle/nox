@@ -36,6 +36,8 @@
 #define MILESTONE_STAT_HEADER_END 0x08
 #define MILESTONE_STAT_FOOTER 0x2a
 
+#define PAYLOAD_SIZE 64000
+
 // Uncomment to get some raw data info as hexa
 //#define RAW_PACKET
 
@@ -63,8 +65,14 @@ char* stat_name(uint8_t stat_id) {
     }
 }
 
-unsigned short read_short(unsigned char** data) {
+uint8_t read_byte(unsigned char** data) {
     uint8_t value = *(*data);
+    *data += 1;
+    return value;
+}
+
+unsigned short read_short(unsigned char** data) {
+    uint16_t value = *(*data);
     *data += 1;
     return value;
 }
@@ -75,7 +83,7 @@ uint32_t read_var_int(unsigned char** data) {
     unsigned int value = 0;
 
     while(1) {
-        uint16_t v = read_short(data);
+        uint16_t v = read_byte(data);
         if(offset > 0) {
             value = value + ((v &127) << (offset*7));
         } else {
@@ -94,7 +102,7 @@ unsigned short read_var_short(unsigned char** data) {
     unsigned short value = 0;
 
     while(1) {
-        uint8_t v = read_short(data);
+        uint8_t v = read_byte(data);
         if(offset > 0) {
             value = value + ((v &127) << (offset*7));
         } else {
@@ -133,7 +141,10 @@ int main(int argc, char* argv[]) {
 
     int packet_size;
 
-    unsigned char *buffer = (unsigned char *)malloc(65536);
+    unsigned char* buffer = (unsigned char *)malloc(65536);
+
+    unsigned char payload[PAYLOAD_SIZE]; // Will contain aggregated data of "large" packets
+    int payload_len = 0;
     
     // Open the raw socket
     int sock = socket (AF_PACKET, SOCK_RAW, htons(ETH_P_ALL));
@@ -143,8 +154,8 @@ int main(int argc, char* argv[]) {
         exit(1);
     }
     while(1) {
-      // recvfrom is used to read data from a socket
       packet_size = recvfrom(sock , buffer , 65536 , 0 , NULL, NULL);
+
       if (packet_size == -1) {
         printf("Failed to get packets\n");
         return 1;
@@ -166,9 +177,33 @@ int main(int argc, char* argv[]) {
           continue;
       }
 
-      offset += sizeof(struct tcphdr);
+      offset += sizeof(struct tcphdr) + 12; // 12 is the number of bytes in options of tcp header 
 
       unsigned char* data = (buffer + offset);
+
+      // Prepare the payload
+      if(payload_len == 0) {
+          memset(payload, 0, PAYLOAD_SIZE);
+      } 
+
+      unsigned int data_size = (int)ntohs(ip->tot_len) - (int)(tcp->doff * 4) - (int)(ip->ihl * 4); // There is no easier way to determine data size ???
+      //printf("%d - %d - %d\n", (int)ntohs(ip->tot_len), (int)(tcp->doff * 4), (int)(ip->ihl * 4));
+      if(data_size > 0) {
+
+          // TODO Maybe we want to perform this operation only on the pakcets we are interrested in 
+          memcpy(payload + payload_len, data, data_size);
+          payload_len += data_size;
+          if(data_size == 1448) {
+              continue; // Big packet ? read the next
+          } else {
+              data = payload;
+          }
+      }
+
+
+      // Payload should be usable at this point
+      // Any data split into several packets should have been agregated
+
       char* type_string="type.ankama.com/";
       char data_type[4] = {0};
 
@@ -177,13 +212,10 @@ int main(int argc, char* argv[]) {
           if (memcmp(data, type_string, 16) == 0) {
               memcpy(data_type, data + 16, 3);
             data_type[3] = '\0'; // Ensure we end the string (only usefull for printing the value)
-              offset += 16 + 3;
-              data = (buffer + offset);
-              //printf("Found data type·%s\n", data_type);
+              data += 16 + 3;
               break;
           }
-          offset++;
-          data = (buffer + offset);
+          data++;
       }
 
       if(memcmp(data_type, "iyc", 3) == 0) {
@@ -191,49 +223,51 @@ int main(int argc, char* argv[]) {
           continue;
           uint8_t value = *(data);
 
-          value = read_short(&data);
+          value = read_byte(&data);
           assert(value == 18);
 
-          read_var_short(&data); 
+          uint16_t data_size = read_var_short(&data); 
 
-          value = read_short(&data);
+          value = read_byte(&data);
           assert(value == 10);
 
-          uint8_t chat_size = read_short(&data);
+          uint8_t chat_size = read_byte(&data);
           char chat_message[512] = {0};
           memcpy(chat_message, data, chat_size);
           printf("%s\n", chat_message);
-      }
-
+      } 
 
       if(memcmp(data_type, "iqs", 3) ==0) {
-          uint8_t value = read_short(&data);
+          uint8_t value = read_byte(&data);
           assert(value == 0x12);
           // Data size : let us now if all the data has been split between several packets
-          uint8_t data_size = read_var_short(&data); 
-          if(data_size < 10) continue;
+          uint16_t data_size = read_var_short(&data); 
+          if(data_size < 10) {
+              // Probably  closing an item detail
+              payload_len = 0;
+              continue;
+          }
 
-          value = read_short(&data);
+          value = read_byte(&data);
           assert(value == 0x08);
-          printf("New HDV packet\n");
-          value = read_short(&data);
+          value = read_byte(&data);
           value = read_var_short(&data);
           data += 2; // (Original item ID ?)
-          for(int i = 0; i <3; i++) { // We try to print 3 items for now, we need a way to find the toal number of items (we also must implement something to handle data split in several packets)
+          while(data < payload + payload_len) { 
               printf("===================\n");
-              value = read_short(&data);
+              value = read_byte(&data);
               assert(value == 0x1a);
               // Lot of unknown data here
               data += 2; 
               value = read_var_short(&data); 
-              value = read_short(&data);
+              value = read_byte(&data);
               assert(value == 0x10);
               read_var_int(&data);
-              read_short(&data);
-              read_short(&data);
+              read_byte(&data);
+              read_byte(&data);
 
               
-              value = read_short(&data);
+              value = read_byte(&data);
               assert(value == 0x22);
               int power = 0;
               while(value == 0x22) {
@@ -242,13 +276,13 @@ int main(int argc, char* argv[]) {
                   uint16_t stat_type = 0;
                   uint16_t stat_value = 0;
 
-                  stat_size = read_short(&data);
+                  stat_size = read_byte(&data);
                   
                   // TODO
                   if(stat_size > 5) {
                       printf("A stat with size %hu is ignored (probably weapon stat)\n", stat_size);
                       data += stat_size;
-                      value = read_short(&data);
+                      value = read_byte(&data);
                       continue;
                   }
 
@@ -256,11 +290,11 @@ int main(int argc, char* argv[]) {
                   // Debug stats
                   printf("%02x ", stat_size);
                   for (int v = 0; v < stat_size; v++) {
-                    value = read_short(&data);
+                    value = read_byte(&data);
                     printf("%02x ", value);
                   }
                   printf("\n");
-                  value = read_short(&data);
+                  value = read_byte(&data);
 #else
 
                   data++; // Skip next byte (0x08)
@@ -275,11 +309,11 @@ int main(int argc, char* argv[]) {
                   if(stat_type == STAT_ID_INTEL) power += 1*stat_value;
 
                   printf("%-20s\t%u\n", stat_name(stat_type), stat_value);
-                  value = read_short(&data);
+                  value = read_byte(&data);
 #endif
               }
               assert(value == MILESTONE_STAT_FOOTER);
-              value = read_short(&data); // End block size
+              value = read_byte(&data); // End block size
               uint32_t price = read_var_int(&data);
               data += 2; // Skip next two empty bytes
               printf("Price %u K\n", price);
@@ -287,7 +321,9 @@ int main(int argc, char* argv[]) {
               printf("===================\n");
           }
 
-      }
+      } 
+
+      payload_len = 0;
 
 
     }
