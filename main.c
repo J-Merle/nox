@@ -27,8 +27,17 @@
 #define STAT_ID_RES_EARTH 0xd2
 #define STAT_ID_INVOCATION 0xb6
 #define STAT_ID_HUNTING 0x1b
+#define STAT_ID_DAMAGE_REFLECT 0xdc
+#define STAT_ID_DAMAGE_FIRE 0xa8
 
 #define DOFUS_SERVER_PORT 5555
+
+#define MILESTONE_STAT_HEADER_START 0x22
+#define MILESTONE_STAT_HEADER_END 0x08
+#define MILESTONE_STAT_FOOTER 0x2a
+
+// Uncomment to get some raw data info as hexa
+//#define RAW_PACKET
 
 char* stat_name(uint8_t stat_id) {
     switch (stat_id) {
@@ -46,6 +55,8 @@ char* stat_name(uint8_t stat_id) {
         case STAT_ID_RES_EARTH: return "RES EARTH %";
         case STAT_ID_INVOCATION: return "INVOCATION";
         case STAT_ID_HUNTING: return "HUNTING";
+        case STAT_ID_DAMAGE_REFLECT: return "DAMAGE REFLECT";
+        case STAT_ID_DAMAGE_FIRE: return "DAMAGE FIRE";
         default: 
             printf("%x was not found\n", stat_id);
             return "UNKNOWN";
@@ -211,13 +222,15 @@ int main(int argc, char* argv[]) {
           for(int i = 0; i <3; i++) { // We try to print 3 items for now, we need a way to find the toal number of items (we also must implement something to handle data split in several packets)
               printf("===================\n");
               value = read_short(&data);
-              printf("Found %x but should be 0x1a\n", value);
               assert(value == 0x1a);
-              data += 2; // ?
-              value = read_var_short(&data); // ?
+              // Lot of unknown data here
+              data += 2; 
+              value = read_var_short(&data); 
               value = read_short(&data);
               assert(value == 0x10);
-              data += 4; // (Specific item ID ?)
+              read_var_int(&data);
+              read_short(&data);
+              read_short(&data);
 
               
               value = read_short(&data);
@@ -238,22 +251,26 @@ int main(int argc, char* argv[]) {
                       continue;
                   }
 
+#ifdef RAW_PACKET
                   // Debug stats
-                  //printf("%x ", stat_size);
-                  //for (int v = 0; v < stat_size; v++) {
-                  //  value = read_short(&data);
-                  //  printf("%x ", value);
-                  //}
-                  //printf("\n");
+                  printf("%02x ", stat_size);
+                  for (int v = 0; v < stat_size; v++) {
+                    value = read_short(&data);
+                    printf("%02x ", value);
+                  }
+                  printf("\n");
+                  value = read_short(&data);
+#else
 
                   data++; // Skip next byte (0x08)
                   stat_type = read_var_short(&data);
                   data++; // Skip next byte (0x18)
                   stat_value = read_var_short(&data);
-                  printf("%s\t\t\t%u\n", stat_name(stat_type), stat_value);
+                  printf("%-20s\t%u\n", stat_name(stat_type), stat_value);
                   value = read_short(&data);
+#endif
               }
-              assert(value == 0x2a);
+              assert(value == MILESTONE_STAT_FOOTER);
               value = read_short(&data); // End block size
               uint32_t price = read_var_int(&data);
               data += 2; // Skip next two empty bytes
