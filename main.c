@@ -14,30 +14,38 @@
 #include <sys/types.h>
 
 #define STAT_ID_INTEL 0x7e
+#define STAT_ID_CRIT_CHANCE 0x73
 #define STAT_ID_STRENGTH 0x76
-#define STAT_ID_VITA 0x7d
 #define STAT_ID_LUCK 0x7b
+#define STAT_ID_WISDOM 0x7c
+#define STAT_ID_VITA 0x7d
 #define STAT_ID_INTEL_DEBUF 0x9b
 #define STAT_ID_AGI_DEBUF 0x9a
 #define STAT_ID_HEAL 0xb2
 #define STAT_ID_ESCAPE 0xf0
 #define STAT_ID_PA 0x6f
 #define STAT_ID_RES_EARTH 0xd2
+#define STAT_ID_INVOCATION 0xb6
+#define STAT_ID_HUNTING 0x1b
 
 #define DOFUS_SERVER_PORT 5555
 
 char* stat_name(uint8_t stat_id) {
     switch (stat_id) {
         case STAT_ID_INTEL: return "INTEL";
+        case STAT_ID_CRIT_CHANCE: return "CRIT CHANCE";
         case STAT_ID_STRENGTH: return "STRENGTH";
         case STAT_ID_VITA: return "VITA";
         case STAT_ID_LUCK: return "LUCK";
+        case STAT_ID_WISDOM: return "WISDOM";
         case STAT_ID_INTEL_DEBUF: return "DEBUF INTEL";
         case STAT_ID_AGI_DEBUF: return "DEBUF AGI";
         case STAT_ID_HEAL: return "HEAL";
         case STAT_ID_ESCAPE: return "ESCAPE";
         case STAT_ID_PA: return "PA";
         case STAT_ID_RES_EARTH: return "RES EARTH %";
+        case STAT_ID_INVOCATION: return "INVOCATION";
+        case STAT_ID_HUNTING: return "HUNTING";
         default: 
             printf("%x was not found\n", stat_id);
             return "UNKNOWN";
@@ -190,16 +198,20 @@ int main(int argc, char* argv[]) {
       if(memcmp(data_type, "iqs", 3) ==0) {
           uint8_t value = read_short(&data);
           assert(value == 0x12);
-          uint8_t data_size = read_var_short(&data); // Data size : let us now if all the data has been split between several packets
+          // Data size : let us now if all the data has been split between several packets
+          uint8_t data_size = read_var_short(&data); 
           if(data_size < 10) continue;
 
           value = read_short(&data);
           assert(value == 0x08);
-          data += 4; // (Original item ID ?)
           printf("New HDV packet\n");
+          value = read_short(&data);
+          value = read_var_short(&data);
+          data += 2; // (Original item ID ?)
           for(int i = 0; i <3; i++) { // We try to print 3 items for now, we need a way to find the toal number of items (we also must implement something to handle data split in several packets)
               printf("===================\n");
               value = read_short(&data);
+              printf("Found %x but should be 0x1a\n", value);
               assert(value == 0x1a);
               data += 2; // ?
               value = read_var_short(&data); // ?
@@ -213,24 +225,32 @@ int main(int argc, char* argv[]) {
               while(value == 0x22) {
 
                   uint8_t stat_size = 0;
-                  uint8_t stat_type = 0;
+                  uint16_t stat_type = 0;
+                  uint16_t stat_value = 0;
 
                   stat_size = read_short(&data);
-                  data++; // Skip next byte (0x08)
-                  stat_type = read_short(&data);
-                  data++; // Skip next byte (0x18)
-                  switch (stat_size) {
-                      case 0x04:
-                          value = read_short(&data);
-                          break;
-                      case 0x05:
-                          value = read_var_short(&data);
-                          break;
-                      default:
-                          printf("Unknown stat_size '%x'\n", stat_size);
-                          return -1;
+                  
+                  // TODO
+                  if(stat_size > 5) {
+                      printf("A stat with size %hu is ignored (probably weapon stat)\n", stat_size);
+                      data += stat_size;
+                      value = read_short(&data);
+                      continue;
                   }
-                  printf("%s\t\t\t%hu\n", stat_name(stat_type), value);
+
+                  // Debug stats
+                  //printf("%x ", stat_size);
+                  //for (int v = 0; v < stat_size; v++) {
+                  //  value = read_short(&data);
+                  //  printf("%x ", value);
+                  //}
+                  //printf("\n");
+
+                  data++; // Skip next byte (0x08)
+                  stat_type = read_var_short(&data);
+                  data++; // Skip next byte (0x18)
+                  stat_value = read_var_short(&data);
+                  printf("%s\t\t\t%u\n", stat_name(stat_type), stat_value);
                   value = read_short(&data);
               }
               assert(value == 0x2a);
